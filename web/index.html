@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kick Drops Miner</title>
+    <link rel="icon" type="image/png" href="/static/favicon.png">
+    <link rel="stylesheet" href="/static/styles.css?v=__APP_VERSION__">
+    <link rel="stylesheet" href="/static/auth.css?v=__APP_VERSION__">
+    <script src="/static/auth.js?v=__APP_VERSION__"></script>
+    <script src="/static/socket.io.min.js?v=__APP_VERSION__"></script>
+</head>
+
+<body>
+    <section id="twitch-login-screen" class="container browser-login-screen kick-login-screen" aria-labelledby="twitch-login-title" hidden>
+        <h1 id="twitch-login-title">Sign in to Kick</h1>
+        <p id="twitch-login-instructions">Log in on kick.com, open DevTools (F12) → Application → Cookies → https://kick.com and copy the value of the session_token cookie.</p>
+        <form id="kick-login-form" class="kick-login-form">
+            <label id="kick-cookie-label" for="kick-cookie-input">session_token / cookies</label>
+            <textarea id="kick-cookie-input" rows="5" spellcheck="false" autocomplete="off"></textarea>
+            <div class="browser-login-actions">
+                <button id="kick-login-submit" type="submit" class="action-button">Sign in</button>
+            </div>
+        </form>
+        <p id="twitch-login-status" role="status" aria-live="polite"></p>
+        <p id="twitch-login-error" role="status" aria-live="polite"></p>
+        <p id="kick-token-hint" class="help-text"></p>
+        <details class="browser-login-access">
+            <summary data-auth-text="title">Dashboard password</summary>
+            <div id="twitch-login-access"></div>
+        </details>
+    </section>
+    <div id="dashboard" class="container" hidden>
+        <header>
+            <div class="header-top">
+                <h1>
+                    <svg class="brand-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 11h4M8 9v4M15 12h.01M18 10h.01"/><path d="M17.3 5H6.7a4 4 0 0 0-3.9 3.1l-1.5 7A2.7 2.7 0 0 0 4 18.3c.8 0 1.5-.4 2-1l1.4-2c.4-.6 1-.9 1.7-.9h5.8c.7 0 1.3.3 1.7.9l1.4 2c.5.6 1.2 1 2 1a2.7 2.7 0 0 0 2.7-3.2l-1.5-7A4 4 0 0 0 17.3 5Z"/></svg>
+                    <span>Kick Drops Miner</span>
+                </h1>
+                <nav class="tabs">
+                    <button class="tab-button active" data-tab="main">Main</button>
+                    <button class="tab-button" data-tab="inventory">Inventory</button>
+                    <button class="tab-button" data-tab="history">History</button>
+                    <button class="tab-button" data-tab="settings">Settings</button>
+                    <button class="tab-button" data-tab="help">Help</button>
+                </nav>
+                <div class="header-controls">
+                    <div class="header-user">
+                        <span id="user-avatar" class="user-avatar" aria-hidden="true"></span>
+                        <div class="login-panel">
+                            <div id="login-status" class="login-status"></div>
+                            <p id="twitch-renewal-status" class="help-text" role="status" aria-live="polite"></p>
+                        </div>
+                    </div>
+                    <span id="connection-indicator" class="connected">● Connected</span>
+                    <button id="web-auth-logout" type="button" data-auth-text="logout" hidden>Log out</button>
+                    <span id="web-auth-logout-result" role="status" aria-live="polite"></span>
+                    <label for="language" class="language-selector">
+                        <span>Language:</span>
+                        <select id="language">
+                            <option value="en">English</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+        </header>
+        <div class="status-bar">
+            <span id="status-text">Initializing...</span>
+            <span id="manual-mode-badge" class="mode-badge hidden" role="button" tabindex="0" style="cursor:pointer"
+                title="Manual mode active - watching specific game">
+                🎯 MANUAL: <span id="manual-game-name"></span>
+            </span>
+            <span id="auto-mode-badge" class="mode-badge" title="Automatic mode - following game priority">
+                🤖 AUTO
+            </span>
+            <span id="proxy-indicator" class="proxy-badge" style="display: none;" title="Proxy connection active">
+                🔒 PROXY
+            </span>
+        </div>
+
+        <!-- Main Tab -->
+        <div id="main-tab" class="tab-content active">
+            <div class="main-grid">
+                <!-- Current Drop Progress -->
+                <section class="panel progress-panel">
+                    <h2 id="progress-header">Campaign Progress</h2>
+                    <div class="progress-layout">
+                    <div id="progress-container">
+                        <div id="manual-mode-controls" class="manual-mode-controls hidden">
+                                <div class="manual-mode-info">
+                                    🎯 Manual Mode: Mining <strong id="manual-mode-game"></strong>
+                                </div>
+                                <button id="exit-manual-btn" class="exit-manual-btn">Return to Auto Mode</button>
+                            </div>
+                        <div id="no-drop-message">No active drop</div>
+                        <div id="drop-info" style="display: none;">
+                            <div id="drop-art" class="drop-art hidden">
+                                <div class="drop-art-bg"></div>
+                                <img class="drop-art-poster" alt="">
+                            </div>
+
+                            <div class="drop-name" id="drop-name"></div>
+                            <div class="drop-game" id="drop-game"></div>
+                            <div class="progress-bar">
+                                <div class="progress-fill" id="progress-fill"></div>
+                            </div>
+                            <div class="progress-meta">
+                                <div class="progress-time" id="progress-time"></div>
+                                <div class="progress-text" id="progress-text"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="now-watching" class="now-watching hidden">
+                        <div class="now-watching-head">
+                            <span id="now-watching-title">Now Watching</span>
+                            <span id="now-watching-live" class="live-badge">Online</span>
+                        </div>
+                        <button id="now-watching-toggle" class="secondary-btn" type="button" aria-pressed="false" aria-controls="now-watching-preview">Show thumbnail</button>
+                        <p id="now-watching-off">Thumbnail is off</p>
+                        <div id="now-watching-preview" class="now-watching-preview" hidden><div id="now-watching-img"></div></div>
+                        <div class="now-watching-foot" id="now-watching-info"></div>
+                    </div>
+                    </div>
+                </section>
+
+                <!-- Console Output -->
+                <section class="panel console-panel">
+                    <h2 id="console-header">Logs</h2>
+                    <div id="console-output" class="console-output"></div>
+                </section>
+
+                <!-- Channels List -->
+                <section class="panel channels-panel">
+                    <h2 id="channels-header">Channels</h2>
+                    <div id="channels-list" class="channels-list"></div>
+                </section>
+
+                <!-- Wanted Items (New Panel) -->
+                <section class="panel wanted-panel">
+                    <h2 id="wanted-header">Wanted Drop Queue</h2>
+                    <div id="wanted-items-list" class="wanted-items-list">
+                        <p class="empty-message-small">No wanted drops queued...</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+
+        <!-- Inventory Tab -->
+        <div id="inventory-tab" class="tab-content">
+            <div class="inventory-filters">
+                <div class="filter-controls">
+                    <div class="filter-checkboxes">
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="filter-active" />
+                            <span>Active</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <span id="filter-link-status-label">Account link</span>
+                            <select id="filter-link-status" aria-labelledby="filter-link-status-label">
+                                <option value="all">All</option>
+                                <option value="linked">Linked</option>
+                                <option value="not_linked">Not Linked</option>
+                            </select>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="filter-upcoming" checked />
+                            <span>Upcoming</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="filter-expired" />
+                            <span>Expired</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="filter-finished" />
+                            <span>Finished</span>
+                        </label>
+                        <div class="filter-separator"
+                            style="width: 1px; height: 24px; background: var(--border-color); margin: 0 10px;">
+                        </div>
+                        <label class="filter-checkbox" title="In-game item (default when Kick gives no type)">
+                            <input type="checkbox" id="filter-benefit-item" checked />
+                            <span>Item</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="filter-benefit-badge" checked />
+                            <span>Badge</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="filter-benefit-emote" checked />
+                            <span>Emote</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="filter-benefit-other" checked />
+                            <span>Other</span>
+                        </label>
+                    </div>
+                    <div class="filter-search">
+                        <div class="game-dropdown-container">
+                            <div class="game-tags-display" id="selected-game-tags">
+                                <!-- Selected game tags will appear here -->
+                            </div>
+                            <input type="text" id="inventory-game-search" placeholder="Type to search games..."
+                                autocomplete="off" />
+                            <div class="game-dropdown-list" id="game-dropdown-list">
+                                <!-- Dropdown options will appear here -->
+                            </div>
+                        </div>
+                        <button id="clear-filters-btn" class="small-btn">Clear Filters</button>
+                    </div>
+                </div>
+            </div>
+            <div class="inventory-grid" id="inventory-grid">
+                <p class="empty-message">No campaigns loaded yet...</p>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settings-tab" class="tab-content">
+            <div class="settings-container">
+                <div id="dashboard-access-slot"></div>
+                <section id="dashboard-access-controls" class="settings-section">
+                    <h2 data-auth-text="title">Dashboard password</h2>
+                    <p id="web-auth-state"></p>
+                    <p class="help-text" data-auth-text="help">Protect this dashboard with one password. Changing it signs out other sessions. Disabling protection clears the password.</p>
+                    <form id="web-auth-settings" class="auth-form">
+                        <div id="web-auth-current-row" hidden>
+                            <label for="web-auth-current" data-auth-text="current_password">Current password</label>
+                            <input id="web-auth-current" type="password" autocomplete="current-password" maxlength="1024">
+                        </div>
+                        <label for="web-auth-new" data-auth-text="new_password">New password (at least 8 characters)</label>
+                        <input id="web-auth-new" type="password" autocomplete="new-password" minlength="8" maxlength="1024" required>
+                        <label for="web-auth-confirm" data-auth-text="confirm_password">Confirm new password</label>
+                        <input id="web-auth-confirm" type="password" autocomplete="new-password" minlength="8" maxlength="1024" required>
+                        <button id="web-auth-save" type="submit" data-auth-text="enable" disabled>Enable password protection</button>
+                        <button id="web-auth-disable" class="auth-secondary" type="button" data-auth-text="disable" hidden>Disable protection and clear password</button>
+                        <p id="web-auth-result" role="status" aria-live="polite"></p>
+                    </form>
+                </section>
+                <section class="settings-section">
+                    <h2 id="settings-general-header">General</h2>
+                    <label>
+                        <input type="checkbox" id="dark-mode"> Dark Mode
+                    </label>
+                    <label>
+                        <input type="checkbox" id="inventory-list-view"> Inventory List View (horizontal rows
+                        instead of cards)
+                    </label>
+                    <label hidden>
+                        Connection Quality:
+                        <input type="number" id="connection-quality" min="1" max="6" value="1">
+                    </label>
+                    <label>
+                        Minimum Refresh Interval (minutes):
+                        <input type="number" id="minimum-refresh-interval" min="1" max="1440" value="30">
+                    </label>
+                    <label>
+                        Proxy URL:
+                        <input type="text" id="proxy-url" placeholder="http://user:pass@host:port">
+                        <button id="set-proxy-btn" class="secondary-btn" title="Set and verify proxy">Set
+                            Proxy</button>
+                        <button id="verify-proxy-btn" class="secondary-btn"
+                            title="Test proxy connection">Verify</button>
+                    </label>
+                    <small class="help-text-inline" style="margin-top: 5px;">Leave empty to disable. Supports
+                        HTTP/HTTPS/SOCKS.</small>
+                    <div id="proxy-verify-result" class="verify-result" style="display: none;"></div>
+                </section>
+
+                <section class="settings-section">
+                    <h2 id="settings-discord-header">Discord Notifications</h2>
+                    <p id="settings-discord-help" class="help-text">Configure drop claim notifications on Discord.</p>
+                    <p id="settings-discord-credentials-help" class="help-text">Leave the URL blank to reuse the saved webhook. Remove Webhook disables notifications and deletes the saved URL.</p>
+                    <label>
+                        <span id="settings-discord-webhook-url-label">Discord Webhook URL:</span>
+                        <input type="password" id="discord-webhook-url" autocomplete="off" placeholder="https://discord.com/api/webhooks/ID/TOKEN">
+                        <small id="settings-discord-webhook-url-hint">Paste the full Webhook URL (it embeds your secret token).</small>
+                    </label>
+                    <div class="button-group">
+                        <button id="save-discord-btn" class="secondary-btn">Save Settings</button>
+                        <button id="test-discord-btn" class="secondary-btn">Test Connection</button>
+                        <button id="remove-discord-btn" class="secondary-btn">Remove Webhook</button>
+                    </div>
+                    <div id="discord-test-result" class="verify-result" style="display: none;"></div>
+                </section>
+
+                <section class="settings-section">
+                    <h2 id="settings-telegram-header">Telegram Notifications</h2>
+                    <p id="settings-telegram-help" class="help-text">Configure drop claim notifications on Telegram.</p>
+                    <p id="settings-telegram-credentials-help" class="help-text">Leave the token blank to keep the saved token. To disable notifications, clear the Chat ID and save.</p>
+                    <label>
+                        <span id="settings-telegram-bot-token-label">Telegram Bot Token:</span>
+                        <input type="password" id="telegram-bot-token" placeholder="123456789:ABCdefGHIjklMNOpqrsTUVwxyz">
+                        <small><span id="settings-telegram-get-from-botfather">Get from</span> <a href="https://t.me/BotFather" target="_blank">@BotFather</a></small>
+                    </label>
+                    <label>
+                        <span id="settings-telegram-chat-id-label">Telegram Chat ID:</span>
+                        <input type="text" id="telegram-chat-id" placeholder="Your numeric ID or @username">
+                        <small id="settings-telegram-your-user-id">Your Telegram user ID (usually starts with a number)</small>
+                    </label>
+                    <div class="button-group">
+                        <button id="save-telegram-btn" class="secondary-btn" title="Save Telegram settings">Save Settings</button>
+                        <button id="test-telegram-btn" class="secondary-btn" title="Test Telegram connection">Test Connection</button>
+                    </div>
+                    <div id="telegram-test-result" class="verify-result" style="display: none;"></div>
+                    <h2 id="settings-benefits-header">Mining Benefits</h2>
+                    <p id="settings-benefits-help" class="help-text">Select which types of drops you want to
+                        mine. Kick does not label reward types, so they are guessed from the reward name (badge, emote, codes/subscriptions → Other, everything else → Item).</p>
+                    <div class="benefits-filter filter-checkboxes">
+                        <label class="filter-checkbox" title="Detailed description: Direct Entitlement (Game Item)">
+                            <input type="checkbox" id="mining-benefit-item" checked />
+                            <span>Item</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="mining-benefit-badge" checked />
+                            <span>Badge</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="mining-benefit-emote" checked />
+                            <span>Emote</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="checkbox" id="mining-benefit-unknown" checked />
+                            <span>Other</span>
+                        </label>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h2 id="settings-hours-header">Mining Hours</h2>
+                    <p id="settings-hours-help" class="help-text">Uses the miner’s local time (Docker TZ). Overnight ranges cross midnight;
+                        equal start and end times mean all day. Outside the window, watching pauses and resumes automatically.</p>
+                    <div class="benefits-filter filter-checkboxes">
+                        <label class="filter-checkbox">
+                            <input type="radio" name="mining-hours-mode" id="mining-hours-always" checked />
+                            <span id="settings-hours-always-label">All day (24/7)</span>
+                        </label>
+                        <label class="filter-checkbox">
+                            <input type="radio" name="mining-hours-mode" id="mining-hours-range" />
+                            <span id="settings-hours-range-label">Custom time range</span>
+                        </label>
+                    </div>
+                    <div id="mining-hours-range-inputs" style="display: none">
+                        <label>
+                            <span id="settings-hours-start-label">Start:</span>
+                            <input type="time" id="mining-hours-start" value="08:00" required>
+                        </label>
+                        <label>
+                            <span id="settings-hours-end-label">End:</span>
+                            <input type="time" id="mining-hours-end" value="22:00" required>
+                        </label>
+                    </div>
+                    <p id="mining-hours-error" class="help-text" role="alert" hidden></p>
+                </section>
+
+                <section class="settings-section">
+                    <label class="checkbox-label">
+                        <input type="checkbox" id="allow-unlinked-campaigns" aria-describedby="allow-unlinked-warning" />
+                        <span id="allow-unlinked-label">Allow mining campaigns reported as Not Linked</span>
+                    </label>
+                    <p id="allow-unlinked-warning" class="help-text account-link-warning" role="note">Warning: This bypasses only KDM's account-link check. It does not link accounts or guarantee Kick progress, claims, or in-game rewards. KDM may show estimated minutes. Check Kick's Drops inventory and link the correct game account to receive rewards.</p>
+                    <p id="allow-unlinked-error" class="help-text" role="alert" hidden></p>
+
+                </section>
+
+                <section class="settings-section">
+                    <h2 id="settings-drop-blacklist-header">Ignored Drop Keywords</h2>
+                    <p id="settings-drop-blacklist-help" class="help-text">Enter one keyword per line. Matching
+                        drops and their dependent branches will not be mined.</p>
+                    <textarea id="drop-name-blacklist" rows="5" placeholder="(JP)&#10;[KR]&#10;Japan"></textarea>
+                </section>
+
+                <section class="settings-section">
+                    <h2 id="settings-games-header">Games to Watch</h2>
+                    <p id="settings-games-help" class="help-text">Select games to watch. Order matters - drag to
+                        reorder
+                        priority (top = highest
+                        priority).</p>
+
+                    <div class="games-filter">
+                        <input type="text" id="games-filter" placeholder="Search games..." />
+                        <div class="filter-actions">
+                            <button id="select-all-btn" class="small-btn">Select All</button>
+                            <button id="deselect-all-btn" class="small-btn">Deselect All</button>
+                            <button id="add-game-btn" class="small-btn">Add Game</button>
+                        </div>
+                    </div>
+
+                    <div class="games-container">
+                        <div class="selected-games">
+                            <h3>Selected Games (drag to reorder)</h3>
+                            <div id="selected-games-list" class="sortable-list"></div>
+                        </div>
+
+                        <div class="available-games">
+                            <h3>Available Games</h3>
+                            <div id="available-games-list" class="checkbox-list"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section class="settings-section">
+                    <h2 id="settings-actions-header">Actions</h2>
+                    <div class="settings-actions">
+                        <button id="reload-btn" class="action-button" type="button">Reload</button>
+                        <button id="clear-cache-btn" class="action-button" type="button">Clear All Cache</button>
+                        <button id="dump-diagnostics-btn" class="action-button" type="button" aria-describedby="diagnostics-help">Dump diagnosis data</button>
+                    </div>
+                    <p id="clear-cache-help" class="help-text">Clears local campaign and channel data, keeps
+                        your login and settings, then reloads from Kick.</p>
+                    <p id="diagnostics-help" class="help-text">Saves deidentified miner state and recent sanitized API responses to data/diagnostics in your mounted data volume.</p>
+                    <p id="diagnostics-result" class="help-text" role="status" aria-live="polite"></p>
+                </section>
+                <section class="settings-section">
+                    <button id="twitch-logout" type="button" class="action-button">Log out of Kick</button>
+                    <p id="twitch-logout-help" class="help-text">Clears this miner's Kick session and shows sign in again.</p>
+                    <p id="twitch-logout-result" role="status" aria-live="polite"></p>
+                </section>
+            </div>
+        </div>
+
+        <!-- Help Tab -->
+        <div id="help-tab" class="tab-content">
+            <div class="help-content">
+                <h2 id="help-about-header">About Kick Drops Miner</h2>
+                <p>This application automatically mines timed Kick drops without downloading stream data.</p>
+
+                <h3 id="help-howto-header">How to Use</h3>
+                <ol>
+                    <li>Sign in with your Kick session_token cookie</li>
+                    <li>Link your accounts at <a href="https://kick.com/drops/inventory"
+                            target="_blank">kick.com/drops/inventory</a></li>
+                    <li>The miner will automatically discover campaigns and start mining</li>
+                    <li>Configure priority games in Settings to focus on what you want</li>
+                    <li>Monitor progress in the Main and Inventory tabs</li>
+                </ol>
+
+                <h3 id="help-features-header">Features</h3>
+                <ul>
+                    <li>Stream-less drop mining - saves bandwidth</li>
+                    <li>Game priority and exclusion lists</li>
+                    <li>Tracks up to 199 channels simultaneously</li>
+                    <li>Automatic channel switching</li>
+                    <li>Real-time progress tracking</li>
+                </ul>
+
+                <h3 id="help-notes-header">Important Notes</h3>
+                <ul>
+                    <li>Do not watch streams on the same account while mining</li>
+                    <li>Keep data/session.json secure</li>
+                    <li>Requires linked game accounts for drops</li>
+                </ul>
+
+                <h3>Telegram Notifications</h3>
+                <p>Receive instant notifications on Telegram when you claim drops. Setup instructions:</p>
+                <ol>
+                    <li>Go to <a href="https://t.me/BotFather" target="_blank">@BotFather</a> on Telegram</li>
+                    <li>Create a new bot with /newbot command</li>
+                    <li>Save the bot token you receive</li>
+                    <li>Start your new bot by searching for it and clicking /start (or send any message)</li>
+                    <li>Get your Chat ID by opening this URL in browser (replace TOKEN): <code>https://api.telegram.org/botTOKEN/getUpdates</code></li>
+                    <li>Find your user ID in the response - it's the number in "from": {"id": YOUR_ID}</li>
+                    <li>Enter the token and Chat ID in Settings and click Test Connection</li>
+                </ol>
+
+                <div class="help-links">
+                    <a href="https://kick.com/drops/inventory" target="_blank">kick.com/drops/inventory</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- History Tab -->
+        <div id="history-tab" class="tab-content">
+            <div class="history-toolbar" style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 12px 16px;
+                background: var(--bg-secondary, #1e1e2e);
+                border-bottom: 1px solid var(--border-color, #333);
+                flex-wrap: wrap;
+            ">
+                <span data-history-key="title" style="font-weight:600; font-size:1rem;">Drop History</span>
+
+                <input
+                    id="history-filter-game"
+                    type="text"
+                    placeholder="Filter by game…"
+                    data-history-placeholder="filter_game"
+                    style="
+                        padding: 5px 10px;
+                        border-radius: 6px;
+                        border: 1px solid var(--border-color, #444);
+                        background: var(--bg-input, #2a2a3e);
+                        color: var(--text-primary, #cdd6f4);
+                        width: 200px;
+                    "
+                />
+
+                <label for="history-filter-since" data-history-key="since">Claimed on or after (UTC)</label>
+                <input
+                    id="history-filter-since"
+                    type="date"
+                    style="
+                        padding: 5px 10px;
+                        border-radius: 6px;
+                        border: 1px solid var(--border-color, #444);
+                        background: var(--bg-input, #2a2a3e);
+                        color: var(--text-primary, #cdd6f4);
+                    "
+                />
+
+                <button id="history-btn-filter" data-history-key="apply" style="
+                    padding: 5px 14px;
+                    border-radius: 6px;
+                    background: var(--accent, #7287fd);
+                    color: #fff;
+                    border: none;
+                    cursor: pointer;
+                    font-weight: 600;
+                ">Apply</button>
+
+                <div style="flex:1"></div>
+
+                <button id="history-btn-export" data-history-key="export" style="
+                    padding: 5px 14px;
+                    border-radius: 6px;
+                    background: var(--success, #40a02b);
+                    color: #fff;
+                    border: none;
+                    cursor: pointer;
+                    font-weight: 600;
+                ">⬇ Export CSV</button>
+
+                <button id="history-btn-stats" data-history-key="stats" style="
+                    padding: 5px 14px;
+                    border-radius: 6px;
+                    background: var(--bg-button, #313244);
+                    color: var(--text-primary, #cdd6f4);
+                    border: 1px solid var(--border-color, #444);
+                    cursor: pointer;
+                ">📊 Stats</button>
+
+                <button id="history-btn-clear" data-history-key="clear" style="
+                    padding: 5px 14px;
+                    border-radius: 6px;
+                    background: var(--danger, #e64553);
+                    color: #fff;
+                    border: none;
+                    cursor: pointer;
+                ">🗑 Clear</button>
+            </div>
+
+            <div id="history-stats-error" role="status"></div>
+            <div id="history-stats-panel" style="
+                display: none;
+                padding: 16px;
+                background: var(--bg-secondary, #1e1e2e);
+                border-bottom: 1px solid var(--border-color, #333);
+                gap: 16px;
+            ">
+                <div style="display:flex; gap:32px; flex-wrap:wrap; align-items:flex-start;">
+                    <div>
+                        <div style="font-size:2rem; font-weight:700; color:var(--accent,#7287fd)" id="stats-total">–</div>
+                        <div data-history-key="total" style="font-size:0.8rem; color:var(--text-muted,#888)">Total drops claimed</div>
+                    </div>
+                    <div id="stats-by-game" style="flex:1; min-width:200px;"></div>
+                    <div id="stats-by-month" style="flex:1; min-width:200px;"></div>
+                </div>
+            </div>
+
+            <div style="padding: 8px 16px; font-size:0.85rem; color: var(--text-muted,#888)">
+                <span id="history-count"></span>
+            </div>
+
+            <div style="overflow-x: auto;">
+                <table id="history-table" style="
+                    width: 100%;
+                    border-collapse: collapse;
+                    font-size: 0.9rem;
+                ">
+                    <thead>
+                        <tr style="
+                            background: var(--bg-secondary, #1e1e2e);
+                            text-align: left;
+                            font-size: 0.8rem;
+                            color: var(--text-muted, #888);
+                            text-transform: uppercase;
+                            letter-spacing: 0.05em;
+                        ">
+                            <th data-history-key="claimed_at" style="padding: 8px 12px;">Date &amp; Time</th>
+                            <th data-history-key="game" style="padding: 8px 12px;">Game</th>
+                            <th data-history-key="campaign" style="padding: 8px 12px;">Campaign</th>
+                            <th data-history-key="drop" style="padding: 8px 12px;">Drop</th>
+                            <th data-history-key="rewards" style="padding: 8px 12px;">Rewards</th>
+                            <th data-history-key="minutes" style="padding: 8px 12px; text-align:right;">Minutes</th>
+                        </tr>
+                    </thead>
+                    <tbody id="history-tbody">
+                        <tr>
+                            <td colspan="6" style="padding:24px; text-align:center; color:var(--text-muted,#888)">
+                                Loading history…
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div style="display:flex; justify-content:center; gap:8px; padding:16px;" id="history-pagination"></div>
+        </div>
+        <!-- Footer -->
+        <footer class="footer">
+            <div class="footer-content">
+                <div class="footer-version">
+                    <span id="footer-version-text">Version: <span id="current-version">Loading...</span></span>
+                    <span id="footer-update-indicator" style="display: none;" class="update-indicator">
+                        <a href="#" id="footer-update-link" target="_blank" title="Click to download update">
+                            ⚠ Update Available: <span id="latest-version"></span>
+                        </a>
+                    </span>
+                </div>
+                <div class="footer-links">
+                    <span class="footer-fork">Fork of
+                        <a href="https://github.com/rangermix/TwitchDropsMiner" target="_blank" rel="noopener noreferrer"
+                            title="https://github.com/rangermix/TwitchDropsMiner">rangermix/TwitchDropsMiner</a></span>
+                    <a href="https://github.com/darkmatterdavson/kickdropsminer" target="_blank" rel="noopener noreferrer"
+                        title="https://github.com/darkmatterdavson/kickdropsminer">GitHub</a>
+                </div>
+            </div>
+        </footer>
+    </div>
+
+    <script src="/static/app.js?v=__APP_VERSION__"></script>
+    <script src="/static/kick-login.js?v=__APP_VERSION__"></script>
+</body>
+
+</html>

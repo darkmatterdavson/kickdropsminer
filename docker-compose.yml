@@ -1,0 +1,17 @@
+services:
+  kick-drops-miner:
+    build: .
+    image: kick-drops-miner:latest
+    container_name: kick-drops-miner
+    init: true
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - TZ=Europe/Prague
+      # Default UI language (can be changed in the UI, top right)
+      - DEFAULT_LANGUAGE=English
+      # Exact public URL when behind a reverse proxy (enables Secure cookies with HTTPS)
+      # - PUBLIC_BASE_URL=https://drops.example.com
+    restart: unless-stopped
